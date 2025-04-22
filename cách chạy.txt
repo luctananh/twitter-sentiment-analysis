@@ -1,0 +1,9 @@
+B1: 
+- train_models
+     python twitter_sentiment.py
+B2: 
+- kích hoạt một môi trường ảo
+     venv\Scripts\activate
+B3:
+- chạy chương trình
+    streamlit run app.py 
