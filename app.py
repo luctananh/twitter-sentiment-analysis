@@ -11,48 +11,53 @@ from nltk.stem import WordNetLemmatizer
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.preprocessing import LabelEncoder
 from transformers import BertTokenizer, BertModel
-from gensim.models import Word2Vec
 import tweepy
 from dotenv import load_dotenv
-import streamlit as st  # Thêm import streamlit
-import pandas as pd
-from sklearn.metrics import accuracy_score, classification_report
-from sklearn.model_selection import train_test_split
-import kagglehub  # Import kagglehub
+import streamlit as st
 
 load_dotenv()  # Load environment variables from .env file
 
-nltk.download('punkt', quiet=True)
-nltk.download('wordnet', quiet=True)
-nltk.download('stopwords', quiet=True)
+nltk.download("punkt", quiet=True)
+nltk.download("wordnet", quiet=True)
+nltk.download("stopwords", quiet=True)
+
 
 # Thêm hàm clean_tweet để loại bỏ mentions, ký tự đặc biệt và URLs
 def clean_tweet(tweet):
-    return ' '.join(re.sub(r"(@[A-Za-z0-9]+)|([^0-9A-Za-z \t])|(\w+:\/\/\S+)", " ", tweet).split())
+    return " ".join(
+        re.sub(r"(@[A-Za-z0-9]+)|([^0-9A-Za-z \t])|(\w+:\/\/\S+)", " ", tweet).split()
+    )
+
 
 # Tiền xử lý văn bản
 def preprocess_text(text, use_lemmatization=True):
     text = clean_tweet(text)  # Clean tweet first
     text = text.lower()
-    stop_words = set(stopwords.words('english'))
+    stop_words = set(stopwords.words("english"))
     words = word_tokenize(text)
     words = [word for word in words if word.isalnum() and word not in stop_words]
     if use_lemmatization:
         lemmatizer = WordNetLemmatizer()
         words = [lemmatizer.lemmatize(word) for word in words]
-    return ' '.join(words)
+    return " ".join(words)
 
-# Định nghĩa các mô hình và đường dẫn
-MODEL_FILES = {
-    "Logistic Regression (TF-IDF)": "models/TFIDF_LogisticRegression_model.sav",
-    "RandomForest (TF-IDF)": "models/TFIDF_RandomForest_model.sav",
-    "NaiveBayes (TF-IDF)": "models/TFIDF_NaiveBayes_model.sav",
-    "LinearSVC (TF-IDF)": "models/TFIDF_SVM_model.sav",
-    "Naive Bayes (BoW)": "models/NaiveBayes_model.sav",
-    "Random Forest (W2v)": "models/RandomForest_models.sav",
-    "Random Forest (TinyBERT)": "models/RandomForest2_models.sav",
-    "SVM (Word2Vec)": "models/SVM_word2vec_model.sav",
-}
+
+# Tự động quét thư mục models/ để lấy danh sách mô hình
+MODELS_DIR = "models"
+
+
+def get_model_files():
+    if not os.path.exists(MODELS_DIR):
+        return {}
+    return {
+        os.path.splitext(f)[0]: os.path.join(MODELS_DIR, f)
+        for f in sorted(os.listdir(MODELS_DIR))
+        if f.endswith(".sav")
+    }
+
+
+MODEL_FILES = get_model_files()
+
 
 # Tải mô hình
 def load_model(model_path, selected_model_name):
@@ -67,29 +72,29 @@ def load_model(model_path, selected_model_name):
         st.text(traceback.format_exc())
         return None, None, None
 
-# Chuyển đổi văn bản thành vector với Word2Vec
-def word2vec_transform(text, model):
-    words = text.split()
-    vector_size = model.vector_size
-    vectors = [model.wv[word] for word in words if word in model.wv]
-    return np.mean(vectors, axis=0) if vectors else np.zeros(vector_size)
 
 # Dự đoán cảm xúc
 def predict_sentiment(text, model, vectorizer, label_encoder, model_name):
     cleaned_text = preprocess_text(text)
 
     # Vector hóa văn bản
-    if isinstance(vectorizer, TfidfVectorizer) or isinstance(vectorizer, CountVectorizer):
+    if isinstance(vectorizer, TfidfVectorizer) or isinstance(
+        vectorizer, CountVectorizer
+    ):
         text_vectorized = vectorizer.transform([cleaned_text])
-    elif isinstance(vectorizer, Word2Vec):
-        text_vectorized = word2vec_transform(cleaned_text, vectorizer).reshape(1, -1)
     elif isinstance(vectorizer, BertTokenizer):
         tokenizer = vectorizer
         model_bert = BertModel.from_pretrained("bert-base-uncased")
-        inputs = tokenizer(cleaned_text, return_tensors="pt", padding=True, truncation=True, max_length=512)
+        inputs = tokenizer(
+            cleaned_text,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=512,
+        )
         with torch.no_grad():
             text_vectorized = model_bert(**inputs).last_hidden_state[:, 0, :].numpy()
-        
+
         # Cắt bớt chiều từ 768 về 312 bằng slicing
         if text_vectorized.shape[1] > 312:
             text_vectorized = text_vectorized[:, :312]  # Cắt bớt số chiều
@@ -103,7 +108,9 @@ def predict_sentiment(text, model, vectorizer, label_encoder, model_name):
 
     # Kiểm tra số chiều đầu vào
     if text_vectorized.shape[1] != model.n_features_in_:
-        st.error(f"Lỗi: Mô hình yêu cầu {model.n_features_in_} features, nhưng dữ liệu có {text_vectorized.shape[1]} features.")
+        st.error(
+            f"Lỗi: Mô hình yêu cầu {model.n_features_in_} features, nhưng dữ liệu có {text_vectorized.shape[1]} features."
+        )
         return "Lỗi"
 
     # Dự đoán kết quả
@@ -118,13 +125,12 @@ def predict_sentiment(text, model, vectorizer, label_encoder, model_name):
     else:
         return "Tiêu cực"
 
+
 # Tìm kiếm và phân tích Twitter
 def get_tweets(query, api_client, tweet_count=10):
     try:
         response = api_client.search_recent_tweets(
-            query=query,
-            tweet_fields=["text"],
-            max_results=tweet_count
+            query=query, tweet_fields=["text"], max_results=tweet_count
         )
         if response.data:
             return [tweet.text for tweet in response.data]
@@ -132,216 +138,184 @@ def get_tweets(query, api_client, tweet_count=10):
             return []
     except tweepy.errors.TooManyRequests as e:
         print(f"Error fetching tweets: {e}")
-        st.error("Do chính sách của Twitter, bạn cần chờ 15 phút trước khi thực hiện yêu cầu tiếp theo.")
+        st.error(
+            "Do chính sách của Twitter, bạn cần chờ 15 phút trước khi thực hiện yêu cầu tiếp theo."
+        )
         return None
     except Exception as e:
         print(f"Error fetching tweets: {e}")
         return []
 
-# Hàm đánh giá mô hình
-def evaluate_model(model, vectorizer, label_encoder, model_name, eval_df):
-    # Tiền xử lý dữ liệu đánh giá
-    eval_df['cleaned_text'] = eval_df['text'].apply(preprocess_text)
 
-    # Vector hóa dữ liệu đánh giá
-    if isinstance(vectorizer, TfidfVectorizer) or isinstance(vectorizer, CountVectorizer):
-        X_eval = vectorizer.transform(eval_df['cleaned_text'])
-    elif isinstance(vectorizer, Word2Vec):
-        X_eval = np.array([word2vec_transform(text, vectorizer) for text in eval_df['cleaned_text']])
-    elif isinstance(vectorizer, BertTokenizer):
-        tokenizer = vectorizer
-        model_bert = BertModel.from_pretrained("bert-base-uncased")
-        X_eval = []
-        for text in eval_df['cleaned_text']:
-            inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512)
-            with torch.no_grad():
-                text_vectorized = model_bert(**inputs).last_hidden_state[:, 0, :].numpy()
-                if text_vectorized.shape[1] > 312:
-                    text_vectorized = text_vectorized[:, :312]
-                elif text_vectorized.shape[1] < 312:
-                    st.warning(f"Số chiều không đủ. Bỏ qua mẫu này.")
-                    continue
-                X_eval.append(text_vectorized)
-        X_eval = np.concatenate(X_eval, axis=0)
-    else:
-        st.error("Vectorizer không hỗ trợ hoặc không hợp lệ.")
-        return None, None
-
-    # Chuyển đổi nhãn
-    y_eval = label_encoder.transform(eval_df['sentiment'])
-    # Dự đoán
-    y_pred = model.predict(X_eval)
-    # Đánh giá
-    accuracy = accuracy_score(y_eval, y_pred)
-    report = classification_report(y_eval, y_pred, output_dict=True) # output_dict=True
-
-    return accuracy, report
 # Giao diện ứng dụng Streamlit
 def main():
-    st.title("Phân tích cảm xúc Twitter")
+    st.set_page_config(
+        page_title="Twitter Sentiment Analysis",
+        page_icon="🐦",
+        layout="wide",
+    )
 
-    # Lựa chọn tab
-    selected_tab = st.radio("Chọn chức năng", ("Phân tích cảm xúc Twitter", "Tìm kiếm và phân tích Twitter", "Đánh giá mô hình"))
+    # Sidebar
+    with st.sidebar:
+        st.markdown("## 📖 Hướng Dẫn")
+        st.markdown(
+            "**📝 Phân Tích Cảm Xúc**\n"
+            "- Nhập văn bản để phân tích cảm xúc\n"
+            "- Chọn mô hình ML phù hợp\n\n"
+            "**🔍 Tìm Kiếm Twitter**\n"
+            "- Tìm tweets theo từ khóa\n"
+            "- Phân tích cảm xúc hàng loạt\n"
+            "- Cần Twitter API Bearer Token"
+        )
+        st.markdown("---")
+        st.info(
+            "**Phiên bản:** v1.0\n\n"
+            "**Công nghệ:** TF-IDF, BERT, Word2Vec\n\n"
+            "**Framework:** Streamlit + Scikit-learn"
+        )
 
-    if selected_tab == "Phân tích cảm xúc Twitter":
-        # Phần phân tích cảm xúc Twitter
-        selected_model_name = st.selectbox("Chọn mô hình phân tích cảm xúc", list(MODEL_FILES.keys()))
-        model_path = MODEL_FILES[selected_model_name]
+    # Header
+    st.markdown(
+        "<h1 style='text-align:center; color:#1DA1F2;'>🐦 Phân Tích Cảm Xúc Twitter</h1>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<p style='text-align:center; color:#657786;'>Công cụ phân tích cảm xúc cho Twitter & văn bản</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("---")
 
-        text_input = st.text_area("Nhập văn bản:")
+    # Tabs
+    tab1, tab2 = st.tabs(["📝 Phân Tích Cảm Xúc", "🔍 Tìm Kiếm Twitter"])
 
-        if st.button("Phân Tích"):
-            model, vectorizer, label_encoder = load_model(model_path, selected_model_name)
+    # ==================== TAB 1 ====================
+    with tab1:
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            selected_model = st.selectbox(
+                "🤖 Chọn mô hình phân tích", list(MODEL_FILES.keys())
+            )
 
-            if model is None:
-                st.error("Không thể tải model.")
+        text_input = st.text_area(
+            "✍️ Nhập văn bản cần phân tích:",
+            placeholder="Ví dụ: I love this product! It's amazing...",
+            height=150,
+        )
+
+        col1, col2, _ = st.columns([1, 1, 2])
+        with col1:
+            analyze_btn = st.button("🔍 Phân Tích", use_container_width=True)
+        with col2:
+            if st.button("🗑️ Xóa", use_container_width=True):
+                st.rerun()
+
+        if analyze_btn:
+            if not text_input.strip():
+                st.warning("⚠️ Vui lòng nhập văn bản!")
             else:
-                sentiment = predict_sentiment(text_input, model, vectorizer, label_encoder, selected_model_name)
-                st.write(f"Kết quả: **{sentiment}**")
+                model, vectorizer, label_encoder = load_model(
+                    MODEL_FILES[selected_model], selected_model
+                )
+                if model is None:
+                    st.error("❌ Không thể tải mô hình.")
+                else:
+                    with st.spinner("Đang phân tích..."):
+                        sentiment = predict_sentiment(
+                            text_input, model, vectorizer, label_encoder, selected_model
+                        )
+                    st.markdown("---")
+                    if sentiment == "Tích cực":
+                        st.success(f"✅ Kết quả: **{sentiment}**")
+                    elif sentiment == "Trung lập":
+                        st.info(f"ℹ️ Kết quả: **{sentiment}**")
+                    else:
+                        st.error(f"❌ Kết quả: **{sentiment}**")
 
-    elif selected_tab == "Tìm kiếm và phân tích Twitter":
-        # Phần tìm kiếm và phân tích Twitter
+    # ==================== TAB 2 ====================
+    with tab2:
         bearer_token = os.getenv("BEARER_TOKEN")
-
         if not bearer_token:
-            st.error("Vui lòng thiết lập biến môi trường cho Twitter Bearer Token.")
-            return
-
-        api_client = tweepy.Client(bearer_token=bearer_token)
-
-        search_query = st.text_input("Nhập từ khóa tìm kiếm Twitter:")
-        tweet_count = st.number_input("Số lượng Twitter muốn lấy:", min_value=1, max_value=20, value=10)
-
-        # Thêm nút Tìm kiếm
-        if st.button("Tìm kiếm"):
-            if search_query:
-                tweets = get_tweets(search_query, api_client, tweet_count)
-                if tweets is not None:
-                    if tweets:
-                        st.session_state.tweets = tweets  # Lưu bài viết tìm được vào session_state
-                        st.write("Kết quả tìm kiếm:")
-                        for tweet in tweets:
-                            st.markdown(f"- **{tweet}")
-                    else:
-                        st.write("Không tìm thấy Twitter nào.")
-                else:
-                    st.write("Đã xảy ra lỗi khi lấy bài viết.")
-            else:
-                st.write("Vui lòng nhập từ khóa tìm kiếm.")
-
-        # Chọn mô hình và phân tích cảm xúc cho các bài viết tìm được
-        if 'tweets' in st.session_state:
-            selected_model_name = st.selectbox("Chọn mô hình phân tích cảm xúc", list(MODEL_FILES.keys()))
-            model_path = MODEL_FILES[selected_model_name]
-
-            if st.button("Phân tích"):
-                model, vectorizer, label_encoder = load_model(model_path, selected_model_name)
-
-                if model:
-                    for tweet in st.session_state.tweets:
-                        sentiment = predict_sentiment(tweet, model, vectorizer, label_encoder, selected_model_name)
-                        st.markdown(f"- **{tweet}**")
-                        st.write(f"  Cảm xúc: **{sentiment}**")
-                else:
-                    st.error("Không thể tải model.")
+            st.error("❌ Thiếu BEARER_TOKEN trong file .env")
+            st.info(
+                "1. Đăng ký Twitter Developer Account\n"
+                "2. Tạo Bearer Token\n"
+                "3. Thêm `BEARER_TOKEN=...` vào file `.env`"
+            )
         else:
-            st.write("Vui lòng tìm kiếm bài viết trước khi phân tích.")
+            api_client = tweepy.Client(bearer_token=bearer_token)
 
-    elif selected_tab == "Đánh giá mô hình":
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                search_query = st.text_input(
+                    "🔎 Từ khóa tìm kiếm:",
+                    placeholder="#AI, #Python, sentiment...",
+                )
+            with col2:
+                tweet_count = st.number_input(
+                    "📊 Số lượng:", min_value=1, max_value=100, value=10
+                )
 
-        selected_model_name = st.selectbox("Chọn mô hình để đánh giá", list(MODEL_FILES.keys()))
-        model_path = MODEL_FILES[selected_model_name]
-
-        # Hiển thị thông tin mô hình đã chọn
-        st.write(f"Bạn đã chọn mô hình: **{selected_model_name}**")
-
-        # Lựa chọn nguồn dữ liệu: Kaggle hoặc Upload File
-        data_source = st.radio("Chọn nguồn dữ liệu đánh giá:", ("Kaggle", "Upload File"))
-
-        # Tải dataset từ Kaggle (chỉ khi nút được nhấn và lựa chọn Kaggle)
-        csv_file = None  # Khởi tạo csv_file ở đây
-        if data_source == "Kaggle":
-            try:
-                dataset_path = kagglehub.dataset_download("kazanova/sentiment140")
-                csv_file = os.path.join(dataset_path, "training.1600000.processed.noemoticon.csv")
-                st.success(f"Dataset đã được tải xuống thành công từ: {dataset_path}")
-            except Exception as e:
-                st.error(f"Lỗi khi tải dataset từ Kaggle: {e}")
-                csv_file = None
-
-        # Upload File (chỉ khi nút được nhấn và lựa chọn Upload File)
-        elif data_source == "Upload File":
-            uploaded_file = st.file_uploader("Tải lên file CSV chứa dữ liệu đánh giá", type="csv")
-            if uploaded_file is not None:
-                csv_file = uploaded_file
-            else:
-                csv_file = None
-
-        # Khởi tạo các biến trong session state nếu chưa có
-        if 'evaluation_done' not in st.session_state:
-            st.session_state.evaluation_done = False
-        if 'accuracy' not in st.session_state:
-            st.session_state.accuracy = None
-        if 'report_df' not in st.session_state:
-            st.session_state.report_df = None
-
-        # Tạo một empty container để chứa nút "Bắt đầu đánh giá"
-        eval_button_container = st.empty()
-
-        if csv_file is not None:
-            with eval_button_container: #hiển thị nút khi có csv_file
-                if st.button("Bắt đầu đánh giá"): # Kiểm tra csv_file trước khi thực hiện
-                    try:
-                        if data_source == "Upload File":
-                            eval_df = pd.read_csv(csv_file, encoding='latin1', header=None, names=["sentiment", "id", "date", "query", "user", "text"])
-                        else:  # data_source == "Kaggle"
-                            eval_df = pd.read_csv(csv_file, encoding='latin1', header=None, names=["sentiment", "id", "date", "query", "user", "text"])
-
-                        # Remap sentiment labels
-                        eval_df["sentiment"] = eval_df["sentiment"].replace({0: -1, 4: 1})
-
-                        # Xác định số lượng mẫu tối đa có thể lấy từ mỗi lớp
-                        num_positive = len(eval_df[eval_df['sentiment'] == 1])
-                        num_negative = len(eval_df[eval_df['sentiment'] == -1])
-                        sample_size = min(160000, num_positive, num_negative)
-
-                        # Cân bằng dữ liệu đánh giá (tối đa 10000 mẫu, sample_size tích cực, sample_size tiêu cực)
-                        positive_samples = eval_df[eval_df['sentiment'] == 1].sample(n=sample_size, random_state=42)  # Lấy ngẫu nhiên mẫu tích cực
-                        negative_samples = eval_df[eval_df['sentiment'] == -1].sample(n=sample_size, random_state=42)  # Lấy ngẫu nhiên mẫu tiêu cực
-                        eval_df = pd.concat([positive_samples, negative_samples])  # Kết hợp lại
-                        eval_df = eval_df.sample(frac=1, random_state=42).reset_index(drop=True)  # Trộn ngẫu nhiên và reset index
-
-                    except Exception as e:
-                        st.error(f"Lỗi khi đọc hoặc xử lý file CSV: {e}")
-                        eval_df = None
-
-                    if eval_df is not None:
-                        model, vectorizer, label_encoder = load_model(model_path, selected_model_name)
-
-                        if model is None:
-                            st.error("Không thể tải model.")
-                        else:
-                            with st.spinner("Đang đánh giá mô hình..."):  # Thêm spinner
-                                accuracy, report = evaluate_model(model, vectorizer, label_encoder, selected_model_name, eval_df.copy()) #truyền bản copy để tránh lỗi
-                            if accuracy is not None:
-                                st.session_state.evaluation_done = True
-                                st.session_state.accuracy = accuracy
-                                st.session_state.report_df = pd.DataFrame(report).transpose()
-                                st.session_state.report_df = st.session_state.report_df.applymap(lambda x: f"{x:.2f}" if isinstance(x, (int, float)) else x)
-                            else:
-                                st.error("Đã xảy ra lỗi trong quá trình đánh giá.")
-                                st.session_state.evaluation_done = False # Reset nếu có lỗi
+            if st.button("🔍 Tìm Kiếm", use_container_width=True):
+                if not search_query.strip():
+                    st.warning("⚠️ Vui lòng nhập từ khóa!")
+                else:
+                    with st.spinner("Đang tìm kiếm..."):
+                        tweets = get_tweets(search_query, api_client, tweet_count)
+                    if tweets is None:
+                        pass  # error already shown
+                    elif tweets:
+                        st.session_state.tweets = tweets
+                        st.success(f"✅ Tìm thấy {len(tweets)} tweets")
+                        for i, t in enumerate(tweets, 1):
+                            st.markdown(
+                                f"**{i}.** {t[:120]}{'...' if len(t) > 120 else ''}"
+                            )
                     else:
-                        st.session_state.evaluation_done = False # Reset nếu có lỗi
+                        st.info("Không tìm thấy tweets phù hợp.")
 
-        else:
-            if data_source is not None: #hiển thị cảnh báo nếu đã chọn nguồn nhưng chưa có file
-                st.warning("Vui lòng tải lên một tập tin CSV hoặc chờ dataset từ 'Kaggle' được tải xuống thành công.")
+            if "tweets" in st.session_state and st.session_state.tweets:
+                st.markdown("---")
+                selected_model = st.selectbox(
+                    "🤖 Chọn mô hình", list(MODEL_FILES.keys()), key="search_model"
+                )
 
-        # Hiển thị kết quả đánh giá (nếu có)
-        if st.session_state.evaluation_done and st.session_state.accuracy is not None:
-            st.metric("Accuracy:", f"{st.session_state.accuracy:.2f}")
-            st.dataframe(st.session_state.report_df)
+                if st.button("🔍 Phân Tích Cảm Xúc", use_container_width=True):
+                    model, vectorizer, label_encoder = load_model(
+                        MODEL_FILES[selected_model], selected_model
+                    )
+                    if model is None:
+                        st.error("❌ Không thể tải mô hình.")
+                    else:
+                        pos = neg = neu = 0
+                        with st.spinner("Đang phân tích..."):
+                            for i, tweet in enumerate(st.session_state.tweets, 1):
+                                sentiment = predict_sentiment(
+                                    tweet,
+                                    model,
+                                    vectorizer,
+                                    label_encoder,
+                                    selected_model,
+                                )
+                                col1, col2 = st.columns([4, 1])
+                                with col1:
+                                    st.markdown(
+                                        f"**{i}.** {tweet[:80]}{'...' if len(tweet) > 80 else ''}"
+                                    )
+                                with col2:
+                                    if sentiment == "Tích cực":
+                                        st.success(sentiment)
+                                        pos += 1
+                                    else:
+                                        st.error(sentiment)
+                                        neg += 1
+                                st.divider()
+
+                        st.markdown("#### 📈 Tóm Tắt")
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("✅ Tích cực", pos)
+                        c2.metric("ℹ️ Trung lập", neu)
+                        c3.metric("❌ Tiêu cực", neg)
+
 
 if __name__ == "__main__":
     main()
