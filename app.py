@@ -1,16 +1,12 @@
 import os
 import joblib
 import traceback
-import numpy as np
-import torch
 import nltk
 import re
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-from sklearn.preprocessing import LabelEncoder
-from transformers import BertTokenizer, BertModel
+from sklearn.feature_extraction.text import TfidfVectorizer
 import tweepy
 from dotenv import load_dotenv
 import streamlit as st
@@ -74,36 +70,14 @@ def load_model(model_path, selected_model_name):
 
 
 # Dự đoán cảm xúc
-def predict_sentiment(text, model, vectorizer, label_encoder, model_name):
+def predict_sentiment(text, model, vectorizer, label_encoder):
     cleaned_text = preprocess_text(text)
 
     # Vector hóa văn bản
-    if isinstance(vectorizer, TfidfVectorizer) or isinstance(
-        vectorizer, CountVectorizer
-    ):
+    if isinstance(vectorizer, TfidfVectorizer):
         text_vectorized = vectorizer.transform([cleaned_text])
-    elif isinstance(vectorizer, BertTokenizer):
-        tokenizer = vectorizer
-        model_bert = BertModel.from_pretrained("bert-base-uncased")
-        inputs = tokenizer(
-            cleaned_text,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=512,
-        )
-        with torch.no_grad():
-            text_vectorized = model_bert(**inputs).last_hidden_state[:, 0, :].numpy()
-
-        # Cắt bớt chiều từ 768 về 312 bằng slicing
-        if text_vectorized.shape[1] > 312:
-            text_vectorized = text_vectorized[:, :312]  # Cắt bớt số chiều
-        elif text_vectorized.shape[1] < 312:
-            st.warning(f"Số chiều không đủ. Bỏ qua mẫu này.")
-            return "Lỗi"
-
     else:
-        st.error("Vectorizer không hỗ trợ hoặc không hợp lệ.")
+        st.error("Vectorizer không hợp lệ. Ứng dụng chỉ hỗ trợ TF-IDF.")
         return "Lỗi"
 
     # Kiểm tra số chiều đầu vào
@@ -117,13 +91,12 @@ def predict_sentiment(text, model, vectorizer, label_encoder, model_name):
     prediction = model.predict(text_vectorized)
     decoded_prediction = label_encoder.inverse_transform(prediction)[0]
 
-    # Điều chỉnh lại kết quả theo yêu cầu
+    # Mô hình TF-IDF hiện tại dùng nhãn nhị phân: 1 (tích cực), -1 (tiêu cực)
     if decoded_prediction == 1:
         return "Tích cực"
-    elif decoded_prediction == 0:
-        return "Trung lập"
-    else:
+    if decoded_prediction == -1:
         return "Tiêu cực"
+    return f"Nhãn không xác định ({decoded_prediction})"
 
 
 # Tìm kiếm và phân tích Twitter
@@ -170,7 +143,7 @@ def main():
         st.markdown("---")
         st.info(
             "**Phiên bản:** v1.0\n\n"
-            "**Công nghệ:** TF-IDF, BERT, Word2Vec\n\n"
+            "**Công nghệ:** TF-IDF, Logistic Regression, LinearSVC\n\n"
             "**Framework:** Streamlit + Scikit-learn"
         )
 
@@ -184,6 +157,10 @@ def main():
         unsafe_allow_html=True,
     )
     st.markdown("---")
+
+    if not MODEL_FILES:
+        st.error("❌ Không tìm thấy file mô hình .sav trong thư mục models/")
+        return
 
     # Tabs
     tab1, tab2 = st.tabs(["📝 Phân Tích Cảm Xúc", "🔍 Tìm Kiếm Twitter"])
@@ -221,13 +198,11 @@ def main():
                 else:
                     with st.spinner("Đang phân tích..."):
                         sentiment = predict_sentiment(
-                            text_input, model, vectorizer, label_encoder, selected_model
+                            text_input, model, vectorizer, label_encoder
                         )
                     st.markdown("---")
                     if sentiment == "Tích cực":
                         st.success(f"✅ Kết quả: **{sentiment}**")
-                    elif sentiment == "Trung lập":
-                        st.info(f"ℹ️ Kết quả: **{sentiment}**")
                     else:
                         st.error(f"❌ Kết quả: **{sentiment}**")
 
@@ -286,7 +261,7 @@ def main():
                     if model is None:
                         st.error("❌ Không thể tải mô hình.")
                     else:
-                        pos = neg = neu = 0
+                        pos = neg = other = 0
                         with st.spinner("Đang phân tích..."):
                             for i, tweet in enumerate(st.session_state.tweets, 1):
                                 sentiment = predict_sentiment(
@@ -294,7 +269,6 @@ def main():
                                     model,
                                     vectorizer,
                                     label_encoder,
-                                    selected_model,
                                 )
                                 col1, col2 = st.columns([4, 1])
                                 with col1:
@@ -305,16 +279,19 @@ def main():
                                     if sentiment == "Tích cực":
                                         st.success(sentiment)
                                         pos += 1
-                                    else:
+                                    elif sentiment == "Tiêu cực":
                                         st.error(sentiment)
                                         neg += 1
+                                    else:
+                                        st.warning(sentiment)
+                                        other += 1
                                 st.divider()
 
                         st.markdown("#### 📈 Tóm Tắt")
                         c1, c2, c3 = st.columns(3)
                         c1.metric("✅ Tích cực", pos)
-                        c2.metric("ℹ️ Trung lập", neu)
-                        c3.metric("❌ Tiêu cực", neg)
+                        c2.metric("❌ Tiêu cực", neg)
+                        c3.metric("⚠️ Khác", other)
 
 
 if __name__ == "__main__":

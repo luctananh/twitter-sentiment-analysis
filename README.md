@@ -1,6 +1,6 @@
 ﻿# 🐦 Phân Tích Cảm Xúc Twitter
 
-Ứng dụng web phân tích cảm xúc (sentiment analysis) cho văn bản và tweets từ Twitter. Xác định xem nội dung mang thái độ **Tích cực**, **Tiêu cực**, hay **Trung lập** bằng các mô hình Machine Learning.
+Ứng dụng web phân tích cảm xúc (sentiment analysis) cho văn bản và tweets từ Twitter. Xác định xem nội dung mang thái độ **Tích cực**, **Tiêu cực** bằng các mô hình Machine Learning.
 
 ## Tính Năng
 
@@ -10,18 +10,20 @@
 
 ## Công Nghệ Sử Dụng
 
-| Thành phần  | Công nghệ                                        |
-| ----------- | ------------------------------------------------ |
-| Giao diện   | Streamlit                                        |
-| ML/NLP      | Scikit-learn, NLTK, Transformers (BERT), PyTorch |
-| Twitter API | Tweepy (API v2)                                  |
-| Lưu mô hình | Joblib                                           |
-| Cấu hình    | python-dotenv                                    |
+| Thành phần    | Công nghệ                                                   |
+| ------------- | ----------------------------------------------------------- |
+| Giao diện     | Streamlit                                                   |
+| Xử lý dữ liệu | Pandas, NumPy                                               |
+| ML/NLP        | Scikit-learn (TF-IDF, Logistic Regression, LinearSVC), NLTK |
+| Twitter API   | Tweepy (API v2)                                             |
+| Lưu mô hình   | Joblib                                                      |
+| Cấu hình      | python-dotenv                                               |
 
 ## Cấu Trúc Dự Án
 
 ```
 ├── app.py                 # Ứng dụng chính (Streamlit)
+├── prepare_dataset.py     # Script chuẩn bị dữ liệu
 ├── requirements.txt       # Thư viện phụ thuộc
 ├── .env                   # Bearer Token cho Twitter API (tự tạo)
 ├── models/                # Mô hình đã huấn luyện (.sav)
@@ -97,7 +99,7 @@ Truy cập `http://localhost:8501` trên trình duyệt.
 
 1. Chọn mô hình từ dropdown
 2. Nhập văn bản cần phân tích
-3. Nhấn **Phân Tích** → nhận kết quả: ✅ Tích cực / ℹ️ Trung lập / ❌ Tiêu cực
+3. Nhấn **Phân Tích** → nhận kết quả: ✅ Tích cực / ❌ Tiêu cực
 
 ### Tab "Tìm Kiếm Twitter"
 
