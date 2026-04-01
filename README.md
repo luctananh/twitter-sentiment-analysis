@@ -23,7 +23,6 @@
 
 ```
 ├── app.py                 # Ứng dụng chính (Streamlit)
-├── prepare_dataset.py     # Script chuẩn bị dữ liệu
 ├── requirements.txt       # Thư viện phụ thuộc
 ├── .env                   # Bearer Token cho Twitter API (tự tạo)
 ├── models/                # Mô hình đã huấn luyện (.sav)
